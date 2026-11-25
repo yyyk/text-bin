@@ -84,7 +84,7 @@ function App() {
   })
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen overflow-hidden">
       <main className="flex min-w-0 flex-1 flex-col bg-muted">
         <FitBox fit={view.fit} onScale={setFitScale}>
           <AtlasPreview
@@ -106,9 +106,7 @@ function App() {
           onFitChange={(fit) => changeView({ fit })}
         />
       </main>
-      {/* relative: the switches' hidden checkboxes are absolutely positioned;
-          without it they'd be placed on the page and make it scroll */}
-      <aside className="relative flex w-72 shrink-0 flex-col border-l">
+      <aside className="flex w-72 shrink-0 flex-col border-l">
         <Tabs
           value={view.tab}
           onValueChange={(tab) => changeView({ tab: tab as PanelTab })}
@@ -175,8 +173,13 @@ function App() {
 /** The largest canvas side the preview draws, in device pixels */
 const MAX_CANVAS = 8192
 
-/** A tab's settings: scrolling on their own, under the tabs */
-const TAB = "min-h-0 space-y-3 overflow-y-auto p-4"
+/**
+ * A tab's settings: scrolling on their own, under the tabs. relative: the
+ * switches' hidden checkboxes are absolutely positioned, so they must be
+ * placed in the scrolling panel; placed on anything outside it, one below
+ * the fold overflows the page and switching tabs scrolls the whole window.
+ */
+const TAB = "relative min-h-0 space-y-3 overflow-y-auto p-4"
 
 /** A ⚠ on a tab whose settings have a problem (shown in its section too) */
 function TabWarning() {

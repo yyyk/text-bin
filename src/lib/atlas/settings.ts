@@ -188,7 +188,7 @@ export const defaultSettings: Settings = {
     count: 500,
   },
   timing: {
-    durationMode: "ratio",
+    durationMode: "fixed",
     duration: 500,
     minDuration: 0,
     jitter: 0.2,
