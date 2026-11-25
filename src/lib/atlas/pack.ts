@@ -1,0 +1,404 @@
+import ShelfPack from "@mapbox/shelf-pack"
+import { Typography } from "text-shape"
+import {
+  createMeasure,
+  missingLetters,
+  type AtlasFont,
+  type Measure,
+} from "./font"
+import type { Settings } from "./settings"
+import { breakLetters, graphemes, type TextContext } from "./text"
+
+/** A piece of text packed into the atlas, at one font size */
+export interface AtlasEntry {
+  id: ShelfPack.ID
+  text: string
+  fontSize: number
+  /** Where it is in the atlas, in px */
+  x: number
+  y: number
+  w: number
+  h: number
+  /**
+   * The size of its slot in the packer: a freed slot can only be reused by
+   * text that fits inside it (shelf-pack never merges free slots)
+   */
+  slotW: number
+  slotH: number
+  /** From the top of the box to the baseline (the font's ascent) */
+  textYOffset: number
+  /** The step it was packed in */
+  packedAt: number
+  /** The step it was last packed or used in */
+  lastUsed: number
+}
+
+/**
+ * A piece of a text as the camera views draw it: an atlas entry, or nothing
+ * for a space between words or letters. `advance` is how far the next piece
+ * starts, at `fontSize`.
+ */
+export interface Piece {
+  entry: AtlasEntry | null
+  advance: number
+  fontSize: number
+}
+
+/** A text at the size it should be packed at */
+export interface Visible {
+  text: string
+  fontSize: number
+  /**
+   * A new appearance, even at the size it already has (a scattered text):
+   * without reuse, packed again
+   */
+  fresh?: boolean
+}
+
+export interface AtlasStats {
+  /** Entries packed so far */
+  packed: number
+  /** Entries evicted to make room */
+  evicted: number
+  /** Times the atlas was full and started over */
+  resets: number
+  /** Entries in the atlas now */
+  cached: number
+}
+
+/** shelf-pack's bins have the slot size too, but its types leave it out */
+type Slot = ShelfPack.Bin & { maxw: number; maxh: number }
+
+/**
+ * An atlas: packs texts with shelf-pack and draws them into `ctx`, in px (the
+ * caller scales the context for the pixel ratio), in black: a mask, coloured
+ * when shown. Text is measured with text-shape and drawn by the browser or
+ * text-shape (settings.text.render). When it's full, the least recently used
+ * entries that free a big enough slot are evicted; when that isn't enough,
+ * it starts over. Evicted pixels are left in place, like in a real texture:
+ * only a new entry's own box is cleared.
+ */
+export function createAtlas(
+  ctx: TextContext,
+  settings: Settings,
+  font: AtlasFont,
+) {
+  const { width, height, unit, padding, reuse } = settings.atlas
+  const margin = edgeMargin(settings)
+  const { letterSpacing } = settings.text
+  const measure = createMeasure(font.font, letterSpacing)
+  const shaper = new Typography().textFont(font.font, 16)
+
+  // Packed inside the margin; entries are moved in by it
+  const packer = new ShelfPack(
+    Math.max(0, width - 2 * margin),
+    Math.max(0, height - 2 * margin),
+  )
+  // Keyed by `${fontSize}|${text}`
+  const entries = new Map<string, AtlasEntry>()
+  // The most recently placed or used pieces of each text; the views draw
+  // from these
+  const latest = new Map<string, Piece[]>()
+  const stats = { packed: 0, evicted: 0, resets: 0 }
+  let tick = 0
+  // Without reuse, entries of the same text and size are kept apart
+  let copies = 0
+
+  // The least recently used entry not visible in this step, whose slot is
+  // big enough for a w × h request
+  function findVictim(w: number, h: number) {
+    let victim: [string, AtlasEntry] | null = null
+    for (const [key, entry] of entries) {
+      if (entry.lastUsed === tick) continue
+      if (entry.slotW < w || entry.slotH < h) continue
+      if (!victim || entry.lastUsed < victim[1].lastUsed) {
+        victim = [key, entry]
+      }
+    }
+    return victim
+  }
+
+  function evict(key: string, entry: AtlasEntry) {
+    const bin = packer.getBin(entry.id)
+    if (bin) packer.unref(bin)
+    entries.delete(key)
+    for (const [text, pieces] of latest) {
+      if (pieces.some((piece) => piece.entry === entry)) latest.delete(text)
+    }
+    stats.evicted++
+  }
+
+  function drawEntry(entry: AtlasEntry) {
+    // the padding too, so the space around the entry is empty
+    ctx.clearRect(
+      entry.x - padding,
+      entry.y - padding,
+      entry.w + 2 * padding,
+      entry.h + 2 * padding,
+    )
+    ctx.fillStyle = "black"
+    // The baseline on a whole device pixel, so the text's horizontal edges
+    // (baseline, x-height, cap height) are as crisp as they can be
+    const pixelRatio = ctx.getTransform().a || 1
+    const baseline =
+      Math.round((entry.y + entry.textYOffset) * pixelRatio) / pixelRatio
+
+    if (settings.text.render === "browser") {
+      ctx.textBaseline = "alphabetic"
+      ctx.textRendering = "optimizeLegibility"
+      ctx.fontKerning = "normal"
+      ctx.font = `${entry.fontSize}px "${font.family}"`
+      // the same spacing text-shape measured with
+      ctx.letterSpacing = `${letterSpacing * entry.fontSize}px`
+      ctx.fillText(entry.text, entry.x, baseline)
+      return
+    }
+    const layout = shaper
+      .textSize(entry.fontSize)
+      .textProperty("letterSpacing", letterSpacing * entry.fontSize)
+      .layout(entry.text, entry.x, baseline)
+    for (const line of layout.lines) {
+      for (const glyph of line.glyphs) {
+        if (!glyph.bbox) continue // spaces
+        ctx.save()
+        ctx.translate(glyph.x, glyph.y)
+        ctx.scale(layout.scale, layout.scale)
+        ctx.fill(font.font.path(glyph.id, layout.variations))
+        ctx.restore()
+      }
+    }
+  }
+
+  // Packs one piece of text, or with reuse finds it already packed; null
+  // when the atlas is full and nothing can be evicted
+  function placeEntry(text: string, fontSize: number) {
+    const key = reuse
+      ? `${fontSize}|${text}`
+      : `${fontSize}|${text}|${copies++}`
+    const cached = entries.get(key)
+    if (cached) {
+      cached.lastUsed = tick
+      return cached
+    }
+
+    const w = Math.ceil(measure.width(text, fontSize))
+    const h = Math.ceil(measure.ascent(fontSize) + measure.descent(fontSize))
+    // the slot has the padding around the box
+    const slotW = w + 2 * padding
+    const slotH = h + 2 * padding
+
+    let rect = packer.packOne(slotW, slotH)
+    while (!rect) {
+      const victim = findVictim(slotW, slotH)
+      if (!victim) return null
+      evict(...victim)
+      rect = packer.packOne(slotW, slotH)
+    }
+
+    const slot = rect as Slot
+    const entry: AtlasEntry = {
+      id: rect.id,
+      text,
+      fontSize,
+      x: margin + rect.x + padding,
+      y: margin + rect.y + padding,
+      w,
+      h,
+      slotW: slot.maxw,
+      slotH: slot.maxh,
+      textYOffset: measure.ascent(fontSize),
+      packedAt: tick,
+      lastUsed: tick,
+    }
+    entries.set(key, entry)
+    stats.packed++
+    drawEntry(entry)
+    return entry
+  }
+
+  // Places all pieces of a text; false when one of them doesn't fit
+  function placeText(text: string, fontSize: number, fresh = false) {
+    // Without reuse, a text still showing at this size keeps its pieces;
+    // anything else is a new appearance, packed again
+    const current = latest.get(text)
+    if (!reuse && !fresh && current?.[0]?.fontSize === fontSize) {
+      for (const piece of current) if (piece.entry) piece.entry.lastUsed = tick
+      return true
+    }
+    const pieces: Piece[] = []
+    for (const piece of splitText(measure, settings, text, fontSize)) {
+      const advance = measure.width(piece, fontSize)
+      // Spaces between words or letters have nothing to draw, so they
+      // aren't packed
+      if (unit !== "string" && !piece.trim()) {
+        pieces.push({ entry: null, advance, fontSize })
+        continue
+      }
+      const entry = placeEntry(piece, fontSize)
+      if (!entry) return false
+      pieces.push({ entry, advance, fontSize })
+    }
+    latest.set(text, pieces)
+    return true
+  }
+
+  // Whether all pieces of a text would fit into an empty atlas
+  function fitsAtlas(text: string, fontSize: number) {
+    const lineHeight = measure.ascent(fontSize) + measure.descent(fontSize)
+    const room = innerWidth(settings)
+    return (
+      lineHeight + 2 * padding + 2 * margin <= height &&
+      splitText(measure, settings, text, fontSize).every(
+        (piece) => measure.width(piece, fontSize) <= room,
+      )
+    )
+  }
+
+  /** Makes sure every visible text is in the atlas at its size */
+  function step(visible: Visible[]) {
+    tick++
+
+    for (const { text, fontSize, fresh } of visible) {
+      // Too big even for an empty atlas (see textWarnings): skip it
+      // rather than start over for nothing
+      if (!fitsAtlas(text, fontSize)) {
+        latest.delete(text)
+        continue
+      }
+      if (placeText(text, fontSize, fresh)) continue
+
+      // Full: start over on top of the old pixels and place what's visible
+      // again
+      stats.resets++
+      packer.clear()
+      entries.clear()
+      latest.clear()
+      for (const { text, fontSize, fresh } of visible) {
+        if (fitsAtlas(text, fontSize)) placeText(text, fontSize, fresh)
+      }
+      break
+    }
+  }
+
+  return {
+    step,
+    /** A text's pieces as last packed or used, if it's in the atlas */
+    pieces: (text: string) => latest.get(text),
+    stats: (): AtlasStats => ({ ...stats, cached: entries.size }),
+    /** The entries in the atlas now (for debug outlines) */
+    entries: (): Iterable<AtlasEntry> => entries.values(),
+    /** The number of the last step: entries packed in it have it as packedAt */
+    lastStep: () => tick,
+  }
+}
+
+export type Atlas = ReturnType<typeof createAtlas>
+
+/**
+ * The pieces to pack for a text:
+ * - "letter": its letters
+ * - "word": its words and the spaces between them; when wrapping, words too
+ *   wide for the atlas are broken between letters
+ * - "string": the whole text when it fits the atlas width (inside the
+ *   padding); otherwise with
+ *   wrap "letter" pieces as wide as possible broken between letters, and with
+ *   wrap "word" as few pieces as possible broken at spaces and, for words
+ *   that are too wide on their own, between letters
+ */
+export function splitText(
+  measure: Measure,
+  settings: Settings,
+  text: string,
+  fontSize: number,
+): string[] {
+  const { unit, wrap } = settings.atlas
+  const width = innerWidth(settings)
+  if (unit === "letter") return graphemes(text)
+  const fits = (piece: string) => measure.width(piece, fontSize) <= width
+  const tokens = text.split(/(\s+)/).filter(Boolean)
+  if (unit === "word") {
+    return tokens.flatMap((token) =>
+      !token.trim() || wrap === "none" || fits(token)
+        ? [token]
+        : breakLetters(measure, token, fontSize, width),
+    )
+  }
+  if (wrap === "none" || fits(text)) return [text]
+  if (wrap === "letter") return breakLetters(measure, text, fontSize, width)
+
+  const pieces: string[] = []
+  let current = ""
+  // Spaces stay in the pieces, so the widths add up to the whole text
+  for (const token of tokens) {
+    if (fits(current + token)) {
+      current += token
+      continue
+    }
+    if (current) pieces.push(current)
+    current = ""
+    if (fits(token)) {
+      current = token
+    } else {
+      const letters = breakLetters(measure, token, fontSize, width)
+      current = letters.pop() ?? ""
+      pieces.push(...letters)
+    }
+  }
+  if (current) pieces.push(current)
+  return pieces
+}
+
+/**
+ * What's wrong with the texts, one message each, for the panel to show:
+ * letters the font has no shape for, and texts wider (or taller) than the
+ * atlas at the largest size, with the size from which on.
+ */
+export function textWarnings(settings: Settings, font: AtlasFont): string[] {
+  const measure = createMeasure(font.font, settings.text.letterSpacing)
+  const { maxSize } = settings.motion
+  const { height, unit, wrap, padding } = settings.atlas
+  const margin = edgeMargin(settings)
+  const width = innerWidth(settings)
+  const warnings: string[] = []
+  for (const text of settings.text.texts) {
+    const missing = missingLetters(font.font, text)
+    if (missing.length > 0) {
+      warnings.push(
+        `"${text}": ${font.name} has no ${missing.map((l) => `"${l}"`).join(", ")}`,
+      )
+    }
+    // With "word" the widest word counts
+    const w =
+      unit === "word"
+        ? Math.max(
+            ...text.split(/\s+/).map((word) => measure.width(word, maxSize)),
+          )
+        : measure.width(text, maxSize)
+    const lineHeight = measure.ascent(maxSize) + measure.descent(maxSize)
+    if (lineHeight + 2 * padding + 2 * margin > height) {
+      warnings.push(
+        `"${text}" is taller than the atlas at ${maxSize}px and won't be shown at that size`,
+      )
+    }
+    if (unit === "letter" || w <= width) continue
+    // The width grows with the font size
+    const limit = Math.floor((maxSize * width) / w)
+    warnings.push(
+      wrap !== "none"
+        ? `"${text}" is wider than the atlas above about ${limit}px and will wrap into pieces`
+        : `"${text}" is wider than the atlas above about ${limit}px and won't be shown at those sizes`,
+    )
+  }
+  return warnings
+}
+
+/** The widest a piece can be: the atlas's width, less the padding (and margin) */
+function innerWidth(settings: Settings) {
+  const { width, padding } = settings.atlas
+  return width - 2 * padding - 2 * edgeMargin(settings)
+}
+
+/** Space kept along the atlas's edges: the padding, with padEdges */
+function edgeMargin(settings: Settings) {
+  return settings.atlas.padEdges ? settings.atlas.padding : 0
+}

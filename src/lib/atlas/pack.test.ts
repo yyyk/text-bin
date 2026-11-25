@@ -1,0 +1,360 @@
+import { readFileSync } from "node:fs"
+import { beforeAll, describe, expect, it } from "vitest"
+import { Font, initText } from "text-shape"
+import { createMeasure, type AtlasFont, type Measure } from "./font"
+import { createAtlas, splitText, textWarnings } from "./pack"
+import { type AtlasSettings, type Settings } from "./settings"
+import { TestContext, testFont, withPath2D, testSettings } from "./test-context"
+
+let font: AtlasFont
+let measure: Measure
+beforeAll(async () => {
+  await initText()
+  const montserrat = readFileSync("public/fonts/Montserrat-Regular.ttf")
+  font = testFont(Font.fromBytes(montserrat), "Montserrat")
+  measure = createMeasure(font.font)
+})
+
+const withAtlas = (atlas: Partial<AtlasSettings>): Settings => ({
+  ...testSettings,
+  atlas: { ...testSettings.atlas, ...atlas },
+})
+const fits = (piece: string, width: number) => measure.width(piece, 10) <= width
+
+describe("splitText", () => {
+  // As wide as "AB CD" at 10px: narrower than the longer texts below
+  const narrow = () => measure.width("AB CD", 10) + 0.01
+
+  it("keeps a text that fits whole", () => {
+    const settings = withAtlas({ width: narrow(), wrap: "word" })
+    expect(splitText(measure, settings, "AB CD", 10)).toEqual(["AB CD"])
+  })
+
+  it("wraps at spaces with wrap word", () => {
+    const width = narrow()
+    const pieces = splitText(
+      measure,
+      withAtlas({ width, wrap: "word" }),
+      "AB CD EF GH",
+      10,
+    )
+    expect(pieces.join("")).toBe("AB CD EF GH")
+    expect(pieces.length).toBeGreaterThan(1)
+    for (const piece of pieces) expect(fits(piece, width)).toBe(true)
+    // every break is at a space: before it or after it
+    for (let i = 1; i < pieces.length; i++) {
+      expect(pieces[i - 1].endsWith(" ") || pieces[i].startsWith(" ")).toBe(
+        true,
+      )
+    }
+  })
+
+  it("breaks a word that's too wide between letters", () => {
+    const width = narrow()
+    const pieces = splitText(
+      measure,
+      withAtlas({ width, wrap: "word" }),
+      "ABCDEFGHIJ",
+      10,
+    )
+    expect(pieces.join("")).toBe("ABCDEFGHIJ")
+    expect(pieces.length).toBeGreaterThan(1)
+    for (const piece of pieces) expect(fits(piece, width)).toBe(true)
+  })
+
+  it("fills each piece as far as it fits with wrap letter", () => {
+    const width = narrow()
+    const text = "ABC DEFGH IJ"
+    const pieces = splitText(
+      measure,
+      withAtlas({ width, wrap: "letter" }),
+      text,
+      10,
+    )
+    expect(pieces.join("")).toBe(text)
+    pieces.forEach((piece, i) => {
+      expect(fits(piece, width)).toBe(true)
+      // one more letter wouldn't have fitted
+      if (i < pieces.length - 1) {
+        expect(fits(piece + pieces[i + 1][0], width)).toBe(false)
+      }
+    })
+  })
+
+  it("doesn't wrap with wrap none", () => {
+    const settings = withAtlas({ width: narrow(), wrap: "none" })
+    expect(splitText(measure, settings, "AB CD EF GH", 10)).toEqual([
+      "AB CD EF GH",
+    ])
+  })
+
+  it("packs words and spaces separately with unit word", () => {
+    const settings = withAtlas({ unit: "word" })
+    expect(splitText(measure, settings, "AB CD", 10)).toEqual(["AB", " ", "CD"])
+  })
+
+  it("packs letters with unit letter", () => {
+    const settings = withAtlas({ unit: "letter" })
+    expect(splitText(measure, settings, "AB C", 10)).toEqual([
+      "A",
+      "B",
+      " ",
+      "C",
+    ])
+  })
+})
+
+describe("createAtlas", () => {
+  it("packs a text once per size and reuses it", () => {
+    const atlas = createAtlas(new TestContext(), testSettings, font)
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    atlas.step([{ text: "ABC", fontSize: 12 }])
+    expect(atlas.stats()).toEqual({
+      packed: 2,
+      evicted: 0,
+      resets: 0,
+      cached: 2,
+    })
+  })
+
+  it("shares words between texts with unit word", () => {
+    const atlas = createAtlas(
+      new TestContext(),
+      withAtlas({ unit: "word" }),
+      font,
+    )
+    atlas.step([
+      { text: "AB CD", fontSize: 10 },
+      { text: "CD EF", fontSize: 10 },
+    ])
+    expect(atlas.stats().packed).toBe(3)
+    expect(atlas.pieces("CD EF")?.map((p) => p.entry?.text ?? null)).toEqual([
+      "CD",
+      null,
+      "EF",
+    ])
+  })
+
+  it("evicts old entries when it's full, and starts over when that isn't enough", () => {
+    // One row, room for "AB" and "CD" (plus a pixel)
+    const box = (text: string) => Math.ceil(measure.width(text, 10))
+    const atlas = createAtlas(
+      new TestContext(),
+      withAtlas({
+        width: box("AB") + box("CD") + 1,
+        height: Math.ceil(measure.ascent(10) + measure.descent(10)),
+      }),
+      font,
+    )
+    atlas.step([{ text: "AB", fontSize: 10 }])
+    atlas.step([{ text: "CD", fontSize: 10 }])
+    // No room for "A": "AB" (least recently used, its slot big enough) goes
+    atlas.step([{ text: "A", fontSize: 10 }])
+    expect(atlas.stats()).toMatchObject({ packed: 3, evicted: 1, resets: 0 })
+    expect(atlas.pieces("AB")).toBeUndefined()
+    // Wider than any slot: nothing to evict that helps, so start over
+    atlas.step([{ text: "ABCD", fontSize: 10 }])
+    expect(atlas.stats()).toMatchObject({ resets: 1, cached: 1 })
+  })
+
+  it("skips a text too big for an empty atlas without starting over", () => {
+    const atlas = createAtlas(
+      new TestContext(),
+      withAtlas({ width: measure.width("AB", 10) + 1, wrap: "none" }),
+      font,
+    )
+    atlas.step([{ text: "AB", fontSize: 10 }])
+    atlas.step([{ text: "ABCDEFGH", fontSize: 10 }])
+    expect(atlas.stats()).toMatchObject({ resets: 0, cached: 1 })
+    expect(atlas.pieces("ABCDEFGH")).toBeUndefined()
+  })
+
+  it("draws each new entry, with the browser or as glyph outlines", () => {
+    const browser = new TestContext()
+    const atlas = createAtlas(browser, testSettings, font)
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    expect(browser.drawn).toEqual(["ABC"])
+
+    const shaped = new TestContext()
+    const settings: Settings = {
+      ...testSettings,
+      text: { ...testSettings.text, render: "text-shape" },
+    }
+    withPath2D(() => {
+      createAtlas(shaped, settings, font).step([{ text: "AB C", fontSize: 10 }])
+    })
+    expect(shaped.filled).toBe(3) // A, B, C; not the space
+  })
+})
+
+describe("letter spacing", () => {
+  const spaced: Settings = {
+    ...testSettings,
+    text: { ...testSettings.text, letterSpacing: 0.1 },
+  }
+
+  it("packs boxes wide enough for the spacing", () => {
+    const atlas = createAtlas(new TestContext(), spaced, font)
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    const entry = atlas.pieces("ABC")![0].entry!
+    // 3 letters, 1px after each
+    expect(entry.w).toBe(Math.ceil(measure.width("ABC", 10) + 3))
+  })
+
+  it("draws with the spacing it measured with", () => {
+    const ctx = new TestContext()
+    createAtlas(ctx, spaced, font).step([{ text: "ABC", fontSize: 20 }])
+    expect(ctx.letterSpacing).toBe("2px")
+  })
+})
+
+describe("padding", () => {
+  const padded = (padding: number, atlas: Partial<AtlasSettings> = {}) =>
+    withAtlas({ padding, ...atlas })
+
+  it("keeps the padding around and between entries", () => {
+    const atlas = createAtlas(new TestContext(), padded(3), font)
+    atlas.step([
+      { text: "AB", fontSize: 10 },
+      { text: "CD", fontSize: 10 },
+    ])
+    const ab = atlas.pieces("AB")![0].entry!
+    const cd = atlas.pieces("CD")![0].entry!
+    expect([ab.x, ab.y]).toEqual([3, 3])
+    // side by side on the shelf, 2 × 3px apart
+    expect(cd.x).toBe(ab.x + ab.w + 6)
+  })
+
+  it("clears the padding with the entry", () => {
+    const ctx = new TestContext()
+    createAtlas(ctx, padded(3), font).step([{ text: "AB", fontSize: 10 }])
+    const entry = { w: Math.ceil(measure.width("AB", 10)) }
+    expect(ctx.cleared[0].slice(0, 3)).toEqual([0, 0, entry.w + 6])
+  })
+
+  it("wraps to the width inside the padding", () => {
+    // room for "AB CD" only without the padding
+    const width = measure.width("AB CD", 10) + 1
+    expect(splitText(measure, padded(0, { width }), "AB CD", 10)).toEqual([
+      "AB CD",
+    ])
+    expect(
+      splitText(measure, padded(4, { width }), "AB CD", 10).length,
+    ).toBeGreaterThan(1)
+  })
+
+  it("pads the edges too with padEdges: as far from them as from each other", () => {
+    const atlas = createAtlas(
+      new TestContext(),
+      padded(3, { padEdges: true }),
+      font,
+    )
+    atlas.step([
+      { text: "AB", fontSize: 10 },
+      { text: "CD", fontSize: 10 },
+    ])
+    const ab = atlas.pieces("AB")![0].entry!
+    const cd = atlas.pieces("CD")![0].entry!
+    expect([ab.x, ab.y]).toEqual([6, 6])
+    expect(cd.x - (ab.x + ab.w)).toBe(6)
+  })
+
+  it("wraps to the width inside the edge padding too", () => {
+    // room for "AB CD" with 2px padding, but not with the edges padded too
+    const width = measure.width("AB CD", 10) + 4 + 1
+    expect(splitText(measure, padded(2, { width }), "AB CD", 10)).toEqual([
+      "AB CD",
+    ])
+    expect(
+      splitText(measure, padded(2, { width, padEdges: true }), "AB CD", 10)
+        .length,
+    ).toBeGreaterThan(1)
+  })
+
+  it("packs the same as before with no padding", () => {
+    const a = createAtlas(new TestContext(), padded(0), font)
+    const b = createAtlas(new TestContext(), testSettings, font)
+    for (const atlas of [a, b]) atlas.step([{ text: "ABC", fontSize: 10 }])
+    expect(a.pieces("ABC")![0].entry).toEqual(b.pieces("ABC")![0].entry)
+  })
+})
+
+describe("reuse", () => {
+  const noReuse = (atlas: Partial<AtlasSettings> = {}) =>
+    withAtlas({ reuse: false, ...atlas })
+
+  it("packs a text again when it comes back at a size it had", () => {
+    const atlas = createAtlas(new TestContext(), noReuse(), font)
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    atlas.step([{ text: "ABC", fontSize: 12 }])
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    expect(atlas.stats()).toMatchObject({ packed: 3, cached: 3 })
+  })
+
+  it("keeps a text that stays at its size", () => {
+    const atlas = createAtlas(new TestContext(), noReuse(), font)
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    expect(atlas.stats().packed).toBe(1)
+  })
+
+  it("packs a fresh appearance again even at the same size", () => {
+    const atlas = createAtlas(new TestContext(), noReuse(), font)
+    atlas.step([{ text: "ABC", fontSize: 10, fresh: true }])
+    atlas.step([{ text: "ABC", fontSize: 10, fresh: true }])
+    expect(atlas.stats().packed).toBe(2)
+  })
+
+  it("doesn't share words between texts", () => {
+    const atlas = createAtlas(
+      new TestContext(),
+      noReuse({ unit: "word" }),
+      font,
+    )
+    atlas.step([
+      { text: "AB CD", fontSize: 10 },
+      { text: "CD EF", fontSize: 10 },
+    ])
+    expect(atlas.stats().packed).toBe(4)
+  })
+})
+
+describe("textWarnings", () => {
+  const settings = (atlas: Partial<AtlasSettings>, texts: string[]) => ({
+    ...withAtlas(atlas),
+    text: { ...testSettings.text, texts },
+    motion: { ...testSettings.motion, maxSize: 10 },
+  })
+
+  it("is empty when everything fits", () => {
+    expect(textWarnings(settings({ width: 600 }, ["ABC"]), font)).toEqual([])
+  })
+
+  it("says from which size a text is too wide", () => {
+    const w = measure.width("ABCDEFGHIJ", 10)
+    const limit = Math.floor((10 * 30) / w)
+    expect(textWarnings(settings({ width: 30 }, ["ABCDEFGHIJ"]), font)).toEqual(
+      [
+        `"ABCDEFGHIJ" is wider than the atlas above about ${limit}px and will wrap into pieces`,
+      ],
+    )
+  })
+
+  it("checks the widest word with unit word, and nothing with unit letter", () => {
+    const width = measure.width("AB", 10) + 1
+    expect(
+      textWarnings(settings({ width, unit: "word" }, ["AB AB AB"]), font),
+    ).toEqual([])
+    expect(
+      textWarnings(settings({ width, unit: "letter" }, ["ABCDEFGHIJ"]), font),
+    ).toEqual([])
+  })
+
+  it("names letters the font has no shape for", () => {
+    expect(textWarnings(settings({}, ["Aあ"]), font)).toEqual([
+      '"Aあ": Montserrat has no "あ"',
+    ])
+  })
+})
