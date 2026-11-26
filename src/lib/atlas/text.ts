@@ -1,4 +1,4 @@
-import type { Measure } from "./font"
+import { textBox, type Measure } from "./font"
 
 /**
  * What the atlas needs from a canvas to draw text, with either renderer. A
@@ -38,7 +38,7 @@ export function breakLetters(
   const pieces: string[] = []
   let current = ""
   for (const letter of graphemes(text)) {
-    if (measure.width(current + letter, size) <= maxWidth) {
+    if (textBox(measure, current + letter, size).w <= maxWidth) {
       current += letter
     } else {
       if (current) pieces.push(current)

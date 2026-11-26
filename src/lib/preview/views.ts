@@ -1,5 +1,5 @@
 import type { Engine } from "@/lib/atlas/engine"
-import type { Measure } from "@/lib/atlas/font"
+import { textBox, type Measure } from "@/lib/atlas/font"
 import type { Piece } from "@/lib/atlas/pack"
 import type { Settings } from "@/lib/atlas/settings"
 import { tint, type Colors } from "./draw"
@@ -9,11 +9,17 @@ import { tint, type Colors } from "./draw"
  * from what the atlas has for it, to see what a strategy does to the text.
  */
 
-/** A view's size in px: its text at the largest size */
+/**
+ * A view's size in px: its text at the largest size, with room on both sides
+ * for ink sticking out of the advance (the text is centred by its advance)
+ */
 export function viewSize(measure: Measure, settings: Settings, text: string) {
   const size = settings.motion.maxSize
+  const advance = measure.width(text, size)
+  const { w, left } = textBox(measure, text, size)
+  const overhang = Math.max(-left, w + left - advance)
   return {
-    width: Math.ceil(measure.width(text, size)),
+    width: Math.ceil(advance + 2 * overhang),
     height: Math.ceil(measure.ascent(size) + measure.descent(size)),
   }
 }
@@ -113,7 +119,7 @@ function drawPieces(
         entry.y * pixelRatio,
         entry.w * pixelRatio,
         entry.h * pixelRatio,
-        x,
+        x - entry.textXOffset * scale,
         (height - h) / 2,
         w,
         h,

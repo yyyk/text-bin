@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { beforeAll, describe, expect, it } from "vitest"
 import { Font, initText } from "text-shape"
-import { createMeasure, type AtlasFont, type Measure } from "./font"
+import { createMeasure, textBox, type AtlasFont, type Measure } from "./font"
 import { createAtlas, splitText, textWarnings } from "./pack"
 import { type AtlasSettings, type Settings } from "./settings"
 import { TestContext, testFont, withPath2D, testSettings } from "./test-context"
@@ -19,11 +19,12 @@ const withAtlas = (atlas: Partial<AtlasSettings>): Settings => ({
   ...testSettings,
   atlas: { ...testSettings.atlas, ...atlas },
 })
-const fits = (piece: string, width: number) => measure.width(piece, 10) <= width
+const fits = (piece: string, width: number) =>
+  textBox(measure, piece, 10).w <= width
 
 describe("splitText", () => {
   // As wide as "AB CD" at 10px: narrower than the longer texts below
-  const narrow = () => measure.width("AB CD", 10) + 0.01
+  const narrow = () => textBox(measure, "AB CD", 10).w + 0.01
 
   it("keeps a text that fits whole", () => {
     const settings = withAtlas({ width: narrow(), wrap: "word" })
@@ -201,6 +202,52 @@ describe("letter spacing", () => {
     const entry = atlas.pieces("ABC")![0].entry!
     // 3 letters, 1px after each
     expect(entry.w).toBe(Math.ceil(measure.width("ABC", 10) + 3))
+  })
+
+  it("packs boxes wide enough for the ink with negative spacing", () => {
+    const tight: Settings = {
+      ...testSettings,
+      text: { ...testSettings.text, letterSpacing: -0.2 },
+    }
+    const atlas = createAtlas(new TestContext(), tight, font)
+    atlas.step([{ text: "ABC", fontSize: 10 }])
+    const entry = atlas.pieces("ABC")![0].entry!
+    const tightMeasure = createMeasure(font.font, -0.2)
+    const ink = tightMeasure.ink("ABC", 10)
+    // the advance ends 2px before the last letter does: wider than it
+    expect(entry.w).toBeGreaterThan(Math.ceil(tightMeasure.width("ABC", 10)))
+    // all the ink inside the box
+    const inkLeft = entry.textXOffset + ink.x
+    expect(inkLeft).toBeGreaterThanOrEqual(0)
+    expect(inkLeft + ink.w).toBeLessThanOrEqual(entry.w)
+  })
+
+  it("wraps to pieces whose boxes fit with negative spacing", () => {
+    const tight = createMeasure(font.font, -0.2)
+    const width = 30
+    const settings: Settings = {
+      ...withAtlas({ width, wrap: "letter" }),
+      text: { ...testSettings.text, letterSpacing: -0.2 },
+    }
+    const pieces = splitText(tight, settings, "ABCDEFGHIJ", 10)
+    expect(pieces.join("")).toBe("ABCDEFGHIJ")
+    for (const piece of pieces) {
+      expect(textBox(tight, piece, 10).w).toBeLessThanOrEqual(width)
+    }
+  })
+
+  it("warns about a text whose box is wider than the atlas", () => {
+    const tight = createMeasure(font.font, -0.2)
+    const box = textBox(tight, "ABC", 10).w
+    // the advance fits, the box doesn't
+    const width = box - 0.5
+    expect(tight.width("ABC", 10)).toBeLessThan(width)
+    const settings: Settings = {
+      ...withAtlas({ width, wrap: "none" }),
+      text: { ...testSettings.text, texts: ["ABC"], letterSpacing: -0.2 },
+      motion: { ...testSettings.motion, maxSize: 10 },
+    }
+    expect(textWarnings(settings, font)).toHaveLength(1)
   })
 
   it("draws with the spacing it measured with", () => {

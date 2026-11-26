@@ -3,6 +3,7 @@ import { Typography } from "text-shape"
 import {
   createMeasure,
   missingLetters,
+  textBox,
   type AtlasFont,
   type Measure,
 } from "./font"
@@ -25,6 +26,11 @@ export interface AtlasEntry {
    */
   slotW: number
   slotH: number
+  /**
+   * From the left of the box to where the text starts: more than 0 when its
+   * ink starts left of it
+   */
+  textXOffset: number
   /** From the top of the box to the baseline (the font's ascent) */
   textYOffset: number
   /** The step it was packed in */
@@ -142,6 +148,7 @@ export function createAtlas(
     const pixelRatio = ctx.getTransform().a || 1
     const baseline =
       Math.round((entry.y + entry.textYOffset) * pixelRatio) / pixelRatio
+    const start = entry.x + entry.textXOffset
 
     if (settings.text.render === "browser") {
       ctx.textBaseline = "alphabetic"
@@ -150,13 +157,13 @@ export function createAtlas(
       ctx.font = `${entry.fontSize}px "${font.family}"`
       // the same spacing text-shape measured with
       ctx.letterSpacing = `${letterSpacing * entry.fontSize}px`
-      ctx.fillText(entry.text, entry.x, baseline)
+      ctx.fillText(entry.text, start, baseline)
       return
     }
     const layout = shaper
       .textSize(entry.fontSize)
       .textProperty("letterSpacing", letterSpacing * entry.fontSize)
-      .layout(entry.text, entry.x, baseline)
+      .layout(entry.text, start, baseline)
     for (const line of layout.lines) {
       for (const glyph of line.glyphs) {
         if (!glyph.bbox) continue // spaces
@@ -181,7 +188,7 @@ export function createAtlas(
       return cached
     }
 
-    const w = Math.ceil(measure.width(text, fontSize))
+    const { w, left } = textBox(measure, text, fontSize)
     const h = Math.ceil(measure.ascent(fontSize) + measure.descent(fontSize))
     // the slot has the padding around the box
     const slotW = w + 2 * padding
@@ -206,6 +213,7 @@ export function createAtlas(
       h,
       slotW: slot.maxw,
       slotH: slot.maxh,
+      textXOffset: -left,
       textYOffset: measure.ascent(fontSize),
       packedAt: tick,
       lastUsed: tick,
@@ -249,7 +257,7 @@ export function createAtlas(
     return (
       lineHeight + 2 * padding + 2 * margin <= height &&
       splitText(measure, settings, text, fontSize).every(
-        (piece) => measure.width(piece, fontSize) <= room,
+        (piece) => textBox(measure, piece, fontSize).w <= room,
       )
     )
   }
@@ -314,7 +322,7 @@ export function splitText(
   const { unit, wrap } = settings.atlas
   const width = innerWidth(settings)
   if (unit === "letter") return graphemes(text)
-  const fits = (piece: string) => measure.width(piece, fontSize) <= width
+  const fits = (piece: string) => textBox(measure, piece, fontSize).w <= width
   const tokens = text.split(/(\s+)/).filter(Boolean)
   if (unit === "word") {
     return tokens.flatMap((token) =>
@@ -371,9 +379,11 @@ export function textWarnings(settings: Settings, font: AtlasFont): string[] {
     const w =
       unit === "word"
         ? Math.max(
-            ...text.split(/\s+/).map((word) => measure.width(word, maxSize)),
+            ...text
+              .split(/\s+/)
+              .map((word) => textBox(measure, word, maxSize).w),
           )
-        : measure.width(text, maxSize)
+        : textBox(measure, text, maxSize).w
     const lineHeight = measure.ascent(maxSize) + measure.descent(maxSize)
     if (lineHeight + 2 * padding + 2 * margin > height) {
       warnings.push(
