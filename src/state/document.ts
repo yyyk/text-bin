@@ -31,7 +31,7 @@ export function appearanceColors(appearance: Appearance) {
 
 export const defaultDoc: Doc = {
   ...defaultSettings,
-  appearance: { background: "#ffffff", transparent: false, color: "#000000" },
+  appearance: { background: "#f2f2f2", transparent: false, color: "#1a1a1a" },
 }
 
 /**

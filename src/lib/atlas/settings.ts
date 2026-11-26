@@ -170,19 +170,19 @@ export interface Settings {
 
 export const defaultSettings: Settings = {
   text: {
-    texts: ["ABC", "DE", "FGHJ"],
+    texts: ["Text Bin"],
     font: "montserrat",
     render: "text-shape",
-    letterSpacing: 0.3,
+    letterSpacing: -0.1,
   },
   motion: {
     mode: "zoom",
     minSize: 12,
-    maxSize: 48,
+    maxSize: 60,
     zoomTexts: "all",
     zoomSizes: "different",
     pattern: "random",
-    gestures: 30,
+    gestures: 4,
     easing: "linear",
     perFrame: 1,
     count: 500,
@@ -194,7 +194,7 @@ export const defaultSettings: Settings = {
     jitter: 0.2,
     pause: 150,
     fps: 60,
-    loop: true,
+    loop: false,
   },
   atlas: {
     width: 600,
@@ -203,7 +203,7 @@ export const defaultSettings: Settings = {
     sizeStep: 1,
     unit: "string",
     wrap: "word",
-    padding: 0,
+    padding: 4,
     padEdges: false,
     reuse: true,
   },
