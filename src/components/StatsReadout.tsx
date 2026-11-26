@@ -14,11 +14,18 @@ export function StatsReadout({ player }: { player: Player }) {
   }, [])
 
   const engine = player.engine()
-  const last = engine.lastCycle()
+  // Cycles only once there's more than one (Loop is out of the panel for
+  // now, so there's always one: see engineSettings), as in the transport
+  const cycle = engine.cycle()
+  const last = cycle > 1 ? engine.lastCycle() : null
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs tabular-nums">
-      <dt className="text-muted-foreground">Cycle</dt>
-      <dd>{engine.cycle()}</dd>
+      {cycle > 1 && (
+        <>
+          <dt className="text-muted-foreground">Cycle</dt>
+          <dd>{cycle}</dd>
+        </>
+      )}
       <dt className="text-muted-foreground">Frame</dt>
       <dd>
         {engine.frame()} / {engine.cycleFrames}

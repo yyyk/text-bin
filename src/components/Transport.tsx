@@ -79,7 +79,8 @@ export function Transport({
         }}
       />
       <span className="w-36 shrink-0 text-xs text-muted-foreground tabular-nums">
-        Cycle {cycle} · {frame} / {cycleFrames}
+        {cycle > 1 && `Cycle ${cycle} · `}
+        {frame} / {cycleFrames}
       </span>
       <ToggleGroup
         aria-label="Scale"

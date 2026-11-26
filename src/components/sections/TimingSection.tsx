@@ -1,7 +1,6 @@
 import { NumberInput } from "@/components/NumberInput"
 import { PanelSection } from "@/components/PanelSection"
 import { SelectField } from "@/components/SelectField"
-import { SwitchField } from "@/components/SwitchField"
 import type { Update } from "@/hooks/useDocument"
 import type { DurationMode } from "@/lib/atlas/settings"
 import type { Option } from "@/lib/options"
@@ -28,7 +27,7 @@ const FRAME_RATES = [
   { value: "60", label: "60 fps" },
 ] as const
 
-/** How long the gestures take, the frame rate and the loop. */
+/** How long the gestures take, and the frame rate. */
 export function TimingSection({ doc, update }: { doc: Doc; update: Update }) {
   const { timing } = doc
   const zoomOnly = doc.motion.mode === "zoom" ? undefined : ONLY_ZOOM
@@ -85,13 +84,6 @@ export function TimingSection({ doc, update }: { doc: Doc; update: Update }) {
         value={String(timing.fps)}
         options={FRAME_RATES}
         onChange={(v) => update("timing", { fps: Number(v) }, false)}
-      />
-      <SwitchField
-        label="Loop"
-        checked={timing.loop}
-        // one text for both states, so the panel doesn't move when toggled
-        hint="On: the path returns to its start, the atlas carries on. Off: each pass starts over, empty"
-        onChange={(loop) => update("timing", { loop }, false)}
       />
     </PanelSection>
   )

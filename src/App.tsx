@@ -12,10 +12,12 @@ import { AtlasSection } from "@/components/sections/AtlasSection"
 import { RandomSection } from "@/components/sections/RandomSection"
 import { TextSection } from "@/components/sections/TextSection"
 import { TimingSection } from "@/components/sections/TimingSection"
+import { ExportSection } from "@/components/sections/ExportSection"
 import { ViewSection } from "@/components/sections/ViewSection"
 import { MotionSection } from "@/components/sections/MotionSection"
 import { useDocument } from "@/hooks/useDocument"
 import { useDocumentFile } from "@/hooks/useDocumentFile"
+import { useExport } from "@/hooks/useExport"
 import { useNotice } from "@/hooks/useNotice"
 import { useFonts } from "@/hooks/useFonts"
 import { usePixelRatio } from "@/hooks/usePixelRatio"
@@ -44,6 +46,13 @@ function App() {
     [text, motion, timing, atlas, seed],
   )
   const [controls, setControls] = useState<PreviewControls | null>(null)
+  const exporter = useExport(
+    doc,
+    settings,
+    fonts.font,
+    controls?.player ?? null,
+    notify,
+  )
   // Drawn at the size it's shown: the pixel ratio times the fit, capped so a
   // large atlas fitted up stays a reasonable canvas. Settled first, as a new
   // scale replays the atlas up to the current frame.
@@ -163,6 +172,14 @@ function App() {
                 <StatsReadout player={controls.player} />
               </PanelSection>
             )}
+            <ExportSection
+              doc={doc}
+              update={update}
+              onCopy={exporter.copy}
+              onDownload={exporter.download}
+              disabled={!controls}
+              notice={noticeFor("export")}
+            />
           </TabsContent>
         </Tabs>
       </aside>

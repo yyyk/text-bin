@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 
-/** Where a message is shown: under the toolbar (Export comes later) */
-export type NoticePlace = "toolbar"
+/** Where a message is shown: under the toolbar, or under Export's buttons */
+export type NoticePlace = "toolbar" | "export"
 
 export interface Notice {
   text: string

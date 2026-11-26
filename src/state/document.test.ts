@@ -25,7 +25,12 @@ describe("engineSettings", () => {
       ...defaultDoc,
       motion: { ...defaultDoc.motion, easing: "cubic-bezier(0.5, -1, 0.5, 2)" },
     }
-    const { appearance: _, ...settings } = doc
+    const { appearance: _, export: __, ...settings } = doc
     expect(engineSettings(doc)).toEqual({ settings, easingError: null })
+  })
+
+  it("plays without loop, even when a file has it", () => {
+    const doc = { ...defaultDoc, timing: { ...defaultDoc.timing, loop: true } }
+    expect(engineSettings(doc).settings.timing.loop).toBe(false)
   })
 })

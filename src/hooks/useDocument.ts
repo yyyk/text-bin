@@ -4,7 +4,8 @@ import { defaultDoc, type Doc } from "@/state/document"
 import { change, createHistory, redo, undo } from "@/state/history"
 
 /** The document's sections that `update` patches */
-export type SectionKey = "text" | "motion" | "timing" | "atlas" | "appearance"
+export type SectionKey =
+  "text" | "motion" | "timing" | "atlas" | "appearance" | "export"
 
 /** Changes some of a section's settings, e.g. update("motion", { maxSize: 48 }) */
 export type Update = <K extends SectionKey>(

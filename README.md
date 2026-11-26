@@ -44,9 +44,8 @@ The settings are in four tabs: Text, Motion, Atlas and Output.
   any CSS easing: keywords, `cubic-bezier()`, `steps()`, `linear()`) or
   Scatter (how many a frame, and in a cycle), between a min and max size.
 - **Timing**: the gestures' durations (fixed, by size, or by zoom ratio),
-  jitter, pauses, and the frame rate. With Loop the path returns to its start
-  and the atlas carries on from cycle to cycle; without, each pass starts
-  over from an empty atlas.
+  jitter, pauses, and the frame rate. The preview keeps playing: each pass
+  starts over from an empty atlas.
 - **Atlas**: its size; padding around each entry (and optionally along the
   edges too, for even spacing); when text is packed during a zoom (every
   frame, every few px, or at the end); what's packed (text, word or letter),
