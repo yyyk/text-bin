@@ -14,6 +14,27 @@ export interface FontEntry extends AtlasFont {
 export const BUILTIN_FONTS = [
   { id: "montserrat", name: "Montserrat", file: "Montserrat-Regular.ttf" },
   { id: "roboto", name: "Roboto", file: "Roboto-Regular.ttf" },
+  { id: "fraunces", name: "Fraunces", file: "Fraunces.ttf" },
+  {
+    id: "playfair-display",
+    name: "Playfair Display",
+    file: "PlayfairDisplay.ttf",
+  },
+  {
+    id: "bricolage-grotesque",
+    name: "Bricolage Grotesque",
+    file: "BricolageGrotesque.ttf",
+  },
+  { id: "oswald", name: "Oswald", file: "Oswald.ttf" },
+  {
+    id: "zen-kaku-gothic-new",
+    name: "Zen Kaku Gothic New",
+    file: "ZenKakuGothicNew-Regular.ttf",
+  },
+  { id: "pacifico", name: "Pacifico", file: "Pacifico-Regular.ttf" },
+  { id: "jost", name: "Jost", file: "Jost.ttf" },
+  { id: "outfit", name: "Outfit", file: "Outfit.ttf" },
+  { id: "noto-sans", name: "Noto Sans", file: "NotoSans.ttf" },
 ] as const
 
 /**

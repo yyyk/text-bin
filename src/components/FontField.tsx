@@ -34,7 +34,10 @@ export function FontField({
   const fileRef = useRef<HTMLInputElement>(null)
   const isBuiltIn = (f: FontEntry) => BUILTIN_FONTS.some((b) => b.id === f.id)
   const items = fonts.map((f) => ({ value: f.id, label: f.name }))
-  const uploaded = fonts.filter((f) => !isBuiltIn(f))
+  // the built-in fonts, then the uploaded ones, each by name
+  const byName = (a: FontEntry, b: FontEntry) => a.name.localeCompare(b.name)
+  const builtIn = fonts.filter(isBuiltIn).sort(byName)
+  const uploaded = fonts.filter((f) => !isBuiltIn(f)).sort(byName)
 
   return (
     <div className="flex items-center justify-between gap-2">
@@ -55,7 +58,7 @@ export function FontField({
           </SelectTrigger>
           {/* as wide as the longest name (up to max-w), not just the field */}
           <SelectContent className="w-auto max-w-80 min-w-(--anchor-width)">
-            {fonts.filter(isBuiltIn).map((f) => (
+            {builtIn.map((f) => (
               <SelectItem key={f.id} value={f.id}>
                 {f.name}
               </SelectItem>

@@ -35,9 +35,11 @@ it, and watch the atlas fill up.
 
 The settings are in four tabs: Text, Motion, Atlas and Output.
 
-- **Text**: any texts (one per line), a built-in font (Montserrat, Roboto) or
-  your own (.ttf, .otf), letter spacing (in em, so it zooms with the text),
-  and the renderer. Letters the font has no shape for are flagged.
+- **Text**: any texts (one per line), a built-in font (Montserrat, Roboto,
+  Fraunces, Playfair Display, Bricolage Grotesque, Oswald, Zen Kaku Gothic New,
+  Pacifico, Jost, Outfit, Noto Sans) or your own (.ttf, .otf), letter spacing
+  (in em, so it zooms with the text), and the renderer. Letters the font has no
+  shape for are flagged.
 - **Appearance**: the background and text colours, or a transparent
   background, as a texture has.
 - **Motion**: Zoom (which texts, their sizes, the pattern, the gestures and
@@ -95,5 +97,7 @@ every push and pull request.
 
 ## License
 
-[MIT](LICENSE). The Montserrat and Roboto fonts in `public/fonts` are under the
-SIL Open Font License (`Montserrat-OFL.txt`, `Roboto-OFL.txt`).
+[MIT](LICENSE). The fonts in `public/fonts` (Montserrat, Roboto, Fraunces,
+Playfair Display, Bricolage Grotesque, Oswald, Zen Kaku Gothic New, Pacifico,
+Jost, Outfit, Noto Sans) are under the SIL Open Font License, each with its own
+`*-OFL.txt`.
