@@ -56,6 +56,9 @@ The settings are in four tabs: Text, Motion, Atlas and Output.
   window or 100% (Shift+1, Shift+0), sharp at either. Debug mode shows each
   text drawn from the atlas, the entries outlined (their padding dashed), and
   the packing stats.
+- **Export**: the current frame as a PNG (1× or 2×) or an SVG (the letters
+  as outlines, only what's visible), on the background or transparent;
+  copy or download.
 - **Documents**: undo and redo (⌘Z, ⇧⌘Z), save and open as .json (⌘S, ⌘O).
 
 ## Development

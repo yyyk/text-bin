@@ -1,3 +1,4 @@
+import type { Variations } from "text-shape"
 import { textBox, type Measure } from "./font"
 
 /**
@@ -23,7 +24,14 @@ export type TextContext = Pick<
   | "translate"
   | "scale"
   | "getTransform"
->
+> & {
+  /**
+   * Fills glyph `glyphId`'s outline (font units, y down) in the current
+   * transform, instead of fill() with its Path2D: for contexts that record
+   * glyphs rather than draw them (the SVG export). A canvas has none
+   */
+  fillGlyph?: (glyphId: number, variations: Variations) => void
+}
 
 /** The text's letters (graphemes, so "é" or an emoji stays one letter) */
 export function graphemes(text: string): string[] {

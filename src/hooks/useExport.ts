@@ -2,12 +2,14 @@ import type { AtlasFont } from "@/lib/atlas/font"
 import type { Settings } from "@/lib/atlas/settings"
 import { download } from "@/lib/export/download"
 import { atlasToPng } from "@/lib/export/png"
+import { atlasToSvg } from "@/lib/export/svg"
 import type { Player } from "@/lib/preview/player"
 import { appearanceColors, type Doc } from "@/state/document"
 import type { Notify } from "./useNotice"
 
 /**
- * The current frame as a PNG, copied or downloaded: the atlas in the
+ * The current frame as a PNG or SVG (the export's format), copied or
+ * downloaded: the atlas in the
  * document's colours, transparent with Transparent or without the export's
  * Background, at the export's scale, replayed up to the frame the preview
  * is at. `player` is the preview's (null before it starts).
@@ -19,7 +21,7 @@ export function useExport(
   player: Player | null,
   notify: Notify,
 ) {
-  const { scale, background } = doc.export
+  const { format, scale, background } = doc.export
   const colors = appearanceColors({
     ...doc.appearance,
     transparent: doc.appearance.transparent || !background,
@@ -37,15 +39,29 @@ export function useExport(
       }),
     )
 
+  // Replayed up to the frame the preview is at, after the click's own
+  // code, as the PNG
+  const svg = (position: number) =>
+    Promise.resolve().then(() =>
+      atlasToSvg({ settings, font, position, colors }),
+    )
+
   const copy = async () => {
     if (!player) return
     try {
-      // the PNG as a promise, as Safari needs: the copy has to start
-      // straight from the click, before the PNG is made
+      // the image as a promise, as Safari needs: the copy has to start
+      // straight from the click, before the image is made
+      const position = player.position()
       await navigator.clipboard.write([
-        new ClipboardItem({ "image/png": png(player.position()) }),
+        format === "svg"
+          ? new ClipboardItem({
+              "text/plain": svg(position).then(
+                (text) => new Blob([text], { type: "text/plain" }),
+              ),
+            })
+          : new ClipboardItem({ "image/png": png(position) }),
       ])
-      notify("export", "Copied as PNG.")
+      notify("export", `Copied as ${format.toUpperCase()}.`)
     } catch (e) {
       notify("export", `Couldn't copy: ${(e as Error).message}`, true)
     }
@@ -53,12 +69,23 @@ export function useExport(
 
   const save = async () => {
     if (!player) return
-    const name = `text-bin@${scale}x.png`
+    const name = format === "svg" ? "text-bin.svg" : `text-bin@${scale}x.png`
     try {
-      download(name, await png(player.position()))
+      download(
+        name,
+        format === "svg"
+          ? new Blob([await svg(player.position())], {
+              type: "image/svg+xml",
+            })
+          : await png(player.position()),
+      )
       notify("export", `Saved ${name}.`)
     } catch (e) {
-      notify("export", `Couldn't make the PNG: ${(e as Error).message}`, true)
+      notify(
+        "export",
+        `Couldn't make the ${format.toUpperCase()}: ${(e as Error).message}`,
+        true,
+      )
     }
   }
 

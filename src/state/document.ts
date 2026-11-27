@@ -13,6 +13,8 @@ export interface Appearance {
 
 /** How the atlas is saved as an image */
 export interface ExportOptions {
+  /** PNG (pixels), or SVG (the glyphs as outlines, only what's visible) */
+  format: "png" | "svg"
   /** PNG px per atlas px: 1 (the atlas's own size) or 2 */
   scale: number
   /**
@@ -44,7 +46,7 @@ export function appearanceColors(appearance: Appearance) {
 export const defaultDoc: Doc = {
   ...defaultSettings,
   appearance: { background: "#f2f2f2", transparent: false, color: "#1a1a1a" },
-  export: { scale: 1, background: true },
+  export: { format: "png", scale: 1, background: true },
 }
 
 /**

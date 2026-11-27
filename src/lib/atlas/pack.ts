@@ -8,6 +8,7 @@ import {
   type Measure,
 } from "./font"
 import type { Settings } from "./settings"
+import { overlaps, rectArgs, union, type Rect } from "./rect"
 import { breakLetters, graphemes, type TextContext } from "./text"
 
 /** A piece of text packed into the atlas, at one font size */
@@ -220,15 +221,19 @@ export function createAtlas(
       box,
       clear: () => {
         for (const glyph of glyphs) {
-          const path = font.font.path(glyph.id, variations)
           ctx.save()
           ctx.globalCompositeOperation = "destination-out"
           ctx.translate(glyph.x, glyph.y)
           ctx.scale(scale, scale)
-          ctx.fill(path)
-          // and its antialiased edge: a device pixel around it
-          ctx.lineWidth = 2 / (pixelRatio * scale)
-          ctx.stroke(path)
+          if (ctx.fillGlyph) {
+            ctx.fillGlyph(glyph.id, variations)
+          } else {
+            const path = font.font.path(glyph.id, variations)
+            ctx.fill(path)
+            // and its antialiased edge: a device pixel around it
+            ctx.lineWidth = 2 / (pixelRatio * scale)
+            ctx.stroke(path)
+          }
           ctx.restore()
         }
       },
@@ -286,7 +291,8 @@ export function createAtlas(
         ctx.save()
         ctx.translate(glyph.x, glyph.y)
         ctx.scale(shaped.scale, shaped.scale)
-        ctx.fill(font.font.path(glyph.id, shaped.variations))
+        if (ctx.fillGlyph) ctx.fillGlyph(glyph.id, shaped.variations)
+        else ctx.fill(font.font.path(glyph.id, shaped.variations))
         ctx.restore()
       }
     }
@@ -518,36 +524,6 @@ export function textWarnings(settings: Settings, font: AtlasFont): string[] {
     )
   }
   return warnings
-}
-
-/** A rectangle in the atlas, in px */
-interface Rect {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-function rectArgs(r: Rect): [number, number, number, number] {
-  return [r.x, r.y, r.w, r.h]
-}
-
-function overlaps(a: Rect, b: Rect) {
-  return (
-    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
-  )
-}
-
-/** The smallest rectangle around `a` and `b` */
-function union(a: Rect, b: Rect): Rect {
-  const x = Math.min(a.x, b.x)
-  const y = Math.min(a.y, b.y)
-  return {
-    x,
-    y,
-    w: Math.max(a.x + a.w, b.x + b.w) - x,
-    h: Math.max(a.y + a.h, b.y + b.h) - y,
-  }
 }
 
 /**
