@@ -57,8 +57,11 @@ The settings are in four tabs: Text, Motion, Atlas and Output.
   text drawn from the atlas, the entries outlined (their padding dashed), and
   the packing stats.
 - **Export**: the current frame as a PNG (1× or 2×) or an SVG (the letters
-  as outlines, only what's visible), on the background or transparent;
-  copy or download.
+  as outlines, only what's visible), copied or downloaded; or the animation
+  as a video (MP4 or WebM; the atlas's size, or scaled up to 4K; one pass
+  or a number of seconds), rendered offline frame by frame and played in
+  the panel before you download it. On the background or transparent
+  (WebM).
 - **Documents**: undo and redo (⌘Z, ⇧⌘Z), save and open as .json (⌘S, ⌘O).
 
 ## Development

@@ -126,15 +126,10 @@ export function AtlasPreview({
       canvasAt: (i) => viewRefs.current[i] ?? null,
     })
 
-    // A frame forward. Without loop the zoom path plays once and the engine
-    // stops: the preview then starts over, so it keeps playing
+    // A frame forward, starting over after a pass (see player.advance), so
+    // it keeps playing
     const advance = () => {
-      if (player.engine().done()) {
-        player.restart()
-        views.redrawAll()
-      } else {
-        player.step()
-      }
+      if (player.advance()) views.redrawAll()
     }
 
     const clock = createFrameClock(settings.timing.fps, performance.now())

@@ -29,6 +29,20 @@ export function createPlayer(
     position++
   }
 
+  /**
+   * One frame forward, as the preview plays and the video records: once a
+   * pass is done (without loop the engine stops there), it starts over
+   * from an empty atlas. True when it started over
+   */
+  function advance() {
+    if (!engine.done()) {
+      step()
+      return false
+    }
+    restart()
+    return true
+  }
+
   /** Moves to frame `target`, counted from the start over all cycles */
   function seek(target: number) {
     if (target < position) restart()
@@ -39,6 +53,7 @@ export function createPlayer(
     engine: () => engine,
     position: () => position,
     step,
+    advance,
     seek,
     restart,
   }

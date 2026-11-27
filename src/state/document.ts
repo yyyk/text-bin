@@ -1,5 +1,6 @@
 import { parseTimingFunction } from "@/lib/atlas/easing"
 import { defaultSettings, type Settings } from "@/lib/atlas/settings"
+import type { VideoCodec, VideoSize } from "@/lib/export/video"
 
 /** The colours (hex, #rrggbb) */
 export interface Appearance {
@@ -13,8 +14,11 @@ export interface Appearance {
 
 /** How the atlas is saved as an image */
 export interface ExportOptions {
-  /** PNG (pixels), or SVG (the glyphs as outlines, only what's visible) */
-  format: "png" | "svg"
+  /**
+   * PNG (pixels), SVG (the glyphs as outlines, only what's visible), or a
+   * video of the animation
+   */
+  format: "png" | "svg" | "video"
   /** PNG px per atlas px: 1 (the atlas's own size) or 2 */
   scale: number
   /**
@@ -22,6 +26,13 @@ export interface ExportOptions {
    * transparent with Appearance's Transparent.
    */
   background: boolean
+  /** H.264 (MP4, no transparency) or VP9 (WebM) */
+  videoCodec: VideoCodec
+  /** The atlas's own size, or scaled to fit (see videoSize) */
+  videoSize: VideoSize
+  /** One pass from an empty atlas, or `videoSeconds` */
+  videoLength: "pass" | "seconds"
+  videoSeconds: number
 }
 
 /**
@@ -46,7 +57,15 @@ export function appearanceColors(appearance: Appearance) {
 export const defaultDoc: Doc = {
   ...defaultSettings,
   appearance: { background: "#f2f2f2", transparent: false, color: "#1a1a1a" },
-  export: { format: "png", scale: 1, background: true },
+  export: {
+    format: "png",
+    scale: 1,
+    background: true,
+    videoCodec: "h264",
+    videoSize: "atlas2",
+    videoLength: "pass",
+    videoSeconds: 10,
+  },
 }
 
 /**

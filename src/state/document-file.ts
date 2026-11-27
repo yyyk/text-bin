@@ -79,7 +79,10 @@ const CHOICES: Record<string, readonly string[]> = {
   unit: ["string", "word", "letter"],
   wrap: ["none", "word", "letter"],
   evicted: ["keep", "letters", "words", "evict"],
-  format: ["png", "svg"],
+  format: ["png", "svg", "video"],
+  videoCodec: ["h264", "vp9"],
+  videoSize: ["atlas", "atlas2", "1080", "1920", "4k"],
+  videoLength: ["pass", "seconds"],
 }
 
 /**

@@ -18,6 +18,7 @@ import { MotionSection } from "@/components/sections/MotionSection"
 import { useDocument } from "@/hooks/useDocument"
 import { useDocumentFile } from "@/hooks/useDocumentFile"
 import { useExport } from "@/hooks/useExport"
+import { useVideo } from "@/hooks/useVideo"
 import { useNotice } from "@/hooks/useNotice"
 import { useFonts } from "@/hooks/useFonts"
 import { usePixelRatio } from "@/hooks/usePixelRatio"
@@ -47,6 +48,13 @@ function App() {
   )
   const [controls, setControls] = useState<PreviewControls | null>(null)
   const exporter = useExport(
+    doc,
+    settings,
+    fonts.font,
+    controls?.player ?? null,
+    notify,
+  )
+  const video = useVideo(
     doc,
     settings,
     fonts.font,
@@ -177,6 +185,7 @@ function App() {
               update={update}
               onCopy={exporter.copy}
               onDownload={exporter.download}
+              video={video}
               disabled={!controls}
               notice={noticeFor("export")}
             />
