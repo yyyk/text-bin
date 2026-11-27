@@ -15,10 +15,16 @@ export class TestContext implements TextContext {
   fontKerning: CanvasFontKerning = "auto"
   letterSpacing = "0px"
   fillStyle: string | CanvasGradient | CanvasPattern = "black"
+  lineWidth = 1
+  globalCompositeOperation: GlobalCompositeOperation = "source-over"
   /** The texts drawn with fillText (the browser renderer) */
   drawn: string[] = []
   /** Glyph outlines filled (the text-shape renderer) */
   filled = 0
+  /** Glyph outlines erased (filled with destination-out) */
+  erased = 0
+  // save() and restore(), for the composite operation
+  private saved: GlobalCompositeOperation[] = []
 
   /** The boxes cleared, [x, y, w, h] */
   cleared: number[][] = []
@@ -30,10 +36,16 @@ export class TestContext implements TextContext {
     this.drawn.push(text)
   }
   fill() {
-    this.filled++
+    if (this.globalCompositeOperation === "destination-out") this.erased++
+    else this.filled++
   }
-  save() {}
-  restore() {}
+  stroke() {}
+  save() {
+    this.saved.push(this.globalCompositeOperation)
+  }
+  restore() {
+    this.globalCompositeOperation = this.saved.pop() ?? "source-over"
+  }
   translate() {}
   scale() {}
   getTransform() {
@@ -106,6 +118,7 @@ export const testSettings: Settings = {
     padding: 0,
     padEdges: false,
     reuse: true,
+    evicted: "keep",
   },
   seed: 1,
 }

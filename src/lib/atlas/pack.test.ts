@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 import { Font, initText } from "text-shape"
 import { createMeasure, textBox, type AtlasFont, type Measure } from "./font"
 import { createAtlas, splitText, textWarnings } from "./pack"
-import { type AtlasSettings, type Settings } from "./settings"
+import { type AtlasSettings, type Evicted, type Settings } from "./settings"
 import { TestContext, testFont, withPath2D, testSettings } from "./test-context"
 
 let font: AtlasFont
@@ -365,6 +365,143 @@ describe("reuse", () => {
       { text: "CD EF", fontSize: 10 },
     ])
     expect(atlas.stats().packed).toBe(4)
+  })
+})
+
+describe("evicted", () => {
+  // Two rows, each with room for "AB" and "CD" (plus a pixel)
+  const box = (text: string) => Math.ceil(measure.width(text, 10))
+  const rowHeight = () => Math.ceil(measure.ascent(10) + measure.descent(10))
+  const twoRows = (evicted: Evicted) =>
+    withAtlas({
+      width: box("AB") + box("CD") + 1,
+      height: 2 * rowHeight(),
+      evicted,
+    })
+  const slot = (atlas: ReturnType<typeof createAtlas>, text: string) => {
+    const { x, y, w, h } = atlas.pieces(text)![0].entry!
+    return [x, y, w, h]
+  }
+
+  // One row: "AB", "CD", then "A" evicts "AB" and takes its slot. The
+  // slots cleared, in order, the letters erased, and AB's slot
+  const evictAB = (evicted: Evicted) => {
+    const ctx = new TestContext()
+    const atlas = createAtlas(
+      ctx,
+      withAtlas({
+        width: box("AB") + box("CD") + 1,
+        height: rowHeight(),
+        evicted,
+      }),
+      font,
+    )
+    atlas.step([{ text: "AB", fontSize: 10 }])
+    atlas.step([{ text: "CD", fontSize: 10 }])
+    const ab = slot(atlas, "AB")
+    ctx.cleared = []
+    withPath2D(() => atlas.step([{ text: "A", fontSize: 10 }]))
+    return { cleared: ctx.cleared, erased: ctx.erased, ab, a: slot(atlas, "A") }
+  }
+
+  it("keeps an evicted entry's pixels with keep", () => {
+    const { cleared, erased, a } = evictAB("keep")
+    expect(cleared).toEqual([a])
+    expect(erased).toBe(0)
+  })
+
+  it("clears an evicted entry whole as it's evicted with evict", () => {
+    const { cleared, erased, ab, a } = evictAB("evict")
+    expect(cleared).toEqual([ab, a])
+    expect(erased).toBe(0)
+  })
+
+  it("erases the letters a new entry touches, each by its shape, with letters", () => {
+    const { cleared, erased, a } = evictAB("letters")
+    // "A" takes AB's slot: A's old letter goes, and B if A's slot reaches
+    // its ink box; then A's slot is cleared as usual
+    expect(cleared).toEqual([a])
+    expect(erased).toBeGreaterThan(0)
+    expect(erased).toBeLessThanOrEqual(2)
+  })
+
+  it("leaves old letters a new entry doesn't touch, with letters", () => {
+    const ctx = new TestContext()
+    const atlas = createAtlas(ctx, twoRows("letters"), font)
+    for (const text of ["AB", "CD", "EF"]) {
+      atlas.step([{ text, fontSize: 10 }])
+    }
+    withPath2D(() => {
+      // Starts over: ABCD on the first row, over AB and CD: A, B, C, D
+      // erased; EF stays
+      ctx.cleared = []
+      atlas.step([{ text: "ABCD", fontSize: 10 }])
+      expect(ctx.erased).toBe(4)
+      expect(ctx.cleared).toEqual([slot(atlas, "ABCD")])
+      // A small one at the start of the second row: E goes, not F
+      atlas.step([{ text: "i", fontSize: 10 }])
+      expect(ctx.erased).toBe(5)
+    })
+  })
+
+  // One row: "AB CD", then "A" evicts it and lands at its start. The
+  // letters erased
+  const overABCD = (evicted: Evicted) => {
+    const ctx = new TestContext()
+    const atlas = createAtlas(
+      ctx,
+      withAtlas({ width: box("AB CD") + 1, height: rowHeight(), evicted }),
+      font,
+    )
+    atlas.step([{ text: "AB CD", fontSize: 10 }])
+    withPath2D(() => atlas.step([{ text: "A", fontSize: 10 }]))
+    expect(atlas.stats().evicted).toBe(1)
+    return ctx.erased
+  }
+
+  it("erases the touched words whole with words", () => {
+    // "A" lands on the word "AB": A and B go, "CD" stays
+    expect(overABCD("words")).toBe(2)
+  })
+
+  it("erases only the touched letters with letters", () => {
+    // A, and B if A's slot reaches its box; not C or D
+    const erased = overABCD("letters")
+    expect(erased).toBeGreaterThanOrEqual(1)
+    expect(erased).toBeLessThanOrEqual(2)
+  })
+
+  it("after a reset, clears old entries whole once a new one is packed over them", () => {
+    const ctx = new TestContext()
+    const atlas = createAtlas(ctx, twoRows("evict"), font)
+    atlas.step([{ text: "AB", fontSize: 10 }])
+    atlas.step([{ text: "CD", fontSize: 10 }])
+    atlas.step([{ text: "EF", fontSize: 10 }])
+    const [ab, cd, ef] = ["AB", "CD", "EF"].map((t) => slot(atlas, t))
+    expect(ef[1]).toBe(rowHeight()) // on the second row
+
+    // Wider than any slot: starts over, packed on the first row
+    ctx.cleared = []
+    atlas.step([{ text: "ABCD", fontSize: 10 }])
+    expect(atlas.stats().resets).toBe(1)
+    // AB and CD (under it) go, then its own; EF stays
+    expect(ctx.cleared).toEqual([ab, cd, slot(atlas, "ABCD")])
+
+    // On the second row, over EF: EF goes now
+    ctx.cleared = []
+    atlas.step([{ text: "G", fontSize: 10 }])
+    expect(ctx.cleared).toEqual([ef, slot(atlas, "G")])
+  })
+
+  it("leaves old pixels after a reset with keep", () => {
+    const ctx = new TestContext()
+    const atlas = createAtlas(ctx, twoRows("keep"), font)
+    for (const text of ["AB", "CD", "EF"]) {
+      atlas.step([{ text, fontSize: 10 }])
+    }
+    ctx.cleared = []
+    atlas.step([{ text: "ABCD", fontSize: 10 }])
+    expect(ctx.cleared).toEqual([slot(atlas, "ABCD")])
   })
 })
 

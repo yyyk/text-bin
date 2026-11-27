@@ -78,6 +78,7 @@ const CHOICES: Record<string, readonly string[]> = {
   strategy: ["every-frame", "size-step", "end-only"],
   unit: ["string", "word", "letter"],
   wrap: ["none", "word", "letter"],
+  evicted: ["keep", "letters", "words", "evict"],
 }
 
 /**

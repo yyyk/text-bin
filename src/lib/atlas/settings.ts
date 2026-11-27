@@ -58,6 +58,26 @@ export type PackUnit = "string" | "word" | "letter"
 export type Wrap = "none" | "word" | "letter"
 
 /**
+ * What happens to an evicted entry's pixels:
+ * - "keep": they stay, cut away piece by piece as newer entries clear their
+ *   own slots (as in a real texture)
+ * - "letters", "words": they stay until a new entry is packed over them,
+ *   then the letters (or words) its slot touches are erased, each whole, by
+ *   their shapes: no cut letters. Touching is by each letter's width and
+ *   the whole line's height, so short letters (e, x) go with tall ones (T,
+ *   t) under new text. (By the letter's ink was tried: it left short
+ *   letters where the tall ones next to them went.)
+ * - "evict": the whole entry is cleared as it's evicted. After a reset (the
+ *   atlas full) the old entries stay until a new one is packed over them,
+ *   then each is cleared whole, so a reset doesn't empty the atlas at once
+ *
+ * (Clearing evicted entries only once something covers them was tried: it
+ * clears the same, as an evicted entry's slot is always taken in the same
+ * step by the entry it was evicted for.)
+ */
+export type Evicted = "keep" | "letters" | "words" | "evict"
+
+/**
  * How text is drawn into the atlas (it's always measured with text-shape,
  * so packing is the same either way):
  * - "browser": the browser's own text drawing (canvas fillText), crisper at
@@ -157,6 +177,8 @@ export interface AtlasSettings {
    * texts don't share pieces
    */
   reuse: boolean
+  /** What happens to an evicted entry's pixels (see Evicted) */
+  evicted: Evicted
 }
 
 export interface Settings {
@@ -206,6 +228,7 @@ export const defaultSettings: Settings = {
     padding: 4,
     padEdges: false,
     reuse: true,
+    evicted: "keep",
   },
   seed: 1,
 }

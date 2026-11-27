@@ -1,5 +1,5 @@
 import ShelfPack from "@mapbox/shelf-pack"
-import { Typography } from "text-shape"
+import { Typography, type PositionedGlyph, type TextLayout } from "text-shape"
 import {
   createMeasure,
   missingLetters,
@@ -82,14 +82,15 @@ type Slot = ShelfPack.Bin & { maxw: number; maxh: number }
  * text-shape (settings.text.render). When it's full, the least recently used
  * entries that free a big enough slot are evicted; when that isn't enough,
  * it starts over. Evicted pixels are left in place, like in a real texture:
- * only a new entry's own box is cleared.
+ * only a new entry's own box is cleared; or evicted entries are cleared
+ * whole (settings.atlas.evicted).
  */
 export function createAtlas(
   ctx: TextContext,
   settings: Settings,
   font: AtlasFont,
 ) {
-  const { width, height, unit, padding, reuse } = settings.atlas
+  const { width, height, unit, padding, reuse, evicted } = settings.atlas
   const margin = edgeMargin(settings)
   const { letterSpacing } = settings.text
   const measure = createMeasure(font.font, letterSpacing)
@@ -109,6 +110,16 @@ export function createAtlas(
   let tick = 0
   // Without reuse, entries of the same text and size are kept apart
   let copies = 0
+  // Unless evicted is "keep": old entries (evicted, or dropped by a reset)
+  // still drawn, with the parts of them not cleared yet: each letter or
+  // word (by parts), or the whole slot with "evict". A new entry clears the
+  // parts its slot touches, each whole, before it's drawn. `bounds` is
+  // around all of an entry's parts
+  let stale: { bounds: Rect; parts: OldPart[] }[] = []
+  // Old text cleared letter by letter or word by word, not by slot
+  const byParts = evicted !== "keep" && evicted !== "evict"
+  // With byParts: each entry's parts as drawn, for when it's old
+  const parts = new Map<AtlasEntry, OldPart[]>()
 
   // The least recently used entry not visible in this step, whose slot is
   // big enough for a w × h request
@@ -128,20 +139,122 @@ export function createAtlas(
     const bin = packer.getBin(entry.id)
     if (bin) packer.unref(bin)
     entries.delete(key)
+    if (evicted === "evict") ctx.clearRect(...rectArgs(slotOf(entry)))
+    if (byParts) retire(entry)
+    parts.delete(entry)
     for (const [text, pieces] of latest) {
       if (pieces.some((piece) => piece.entry === entry)) latest.delete(text)
     }
     stats.evicted++
   }
 
-  function drawEntry(entry: AtlasEntry) {
-    // the padding too, so the space around the entry is empty
-    ctx.clearRect(
-      entry.x - padding,
-      entry.y - padding,
-      entry.w + 2 * padding,
-      entry.h + 2 * padding,
+  // An entry's slot: its box and the padding around it
+  function slotOf(entry: AtlasEntry): Rect {
+    return {
+      x: entry.x - padding,
+      y: entry.y - padding,
+      w: entry.w + 2 * padding,
+      h: entry.h + 2 * padding,
+    }
+  }
+
+  // An entry becomes old (see stale)
+  function retire(entry: AtlasEntry) {
+    const slot = slotOf(entry)
+    const old = byParts
+      ? (parts.get(entry) ?? [])
+      : [{ box: slot, clear: () => ctx.clearRect(...rectArgs(slot)) }]
+    if (old.length === 0) return
+    stale.push({ bounds: old.map((p) => p.box).reduce(union), parts: old })
+  }
+
+  // An entry's parts, as evicted says, from its text-shape layout: each
+  // letter or each word, with the box that decides whether a new entry
+  // touches it: the letters' ink, out to whole device pixels at
+  // `pixelRatio` and one more (antialiasing reaches into the next pixel),
+  // and the whole line's height (the entry's box), so short letters (e, x)
+  // go with tall ones (T, t) under new text rather than being left alone. Each part is cleared by its
+  // letters' own shapes, so the letters around it stay whole (their boxes
+  // overlap: kerning, letter spacing)
+  function oldParts(
+    entry: AtlasEntry,
+    layout: TextLayout,
+    pixelRatio: number,
+  ): OldPart[] {
+    const out = (v: number, dir: -1 | 1) =>
+      (dir < 0
+        ? Math.floor(v * pixelRatio) - 1
+        : Math.ceil(v * pixelRatio) + 1) / pixelRatio
+    const { scale, variations } = layout
+    const word = wordIndexes(entry.text)
+    const groups = new Map<number, { box: Rect; glyphs: PositionedGlyph[] }>()
+    let letter = 0
+    layout.lines.forEach((line) =>
+      line.glyphs.forEach((glyph) => {
+        if (!glyph.bbox) return // spaces
+        // font units, y up, from the pen position on the baseline
+        const { x_min, y_min, x_max, y_max } = glyph.bbox
+        let top = out(glyph.y - y_max * scale, -1)
+        let bottom = out(glyph.y - y_min * scale, 1)
+        // the line exactly: grown, it would touch the row above or below
+        top = Math.min(top, entry.y)
+        bottom = Math.max(bottom, entry.y + entry.h)
+        const x = out(glyph.x + x_min * scale, -1)
+        const box = {
+          x,
+          y: top,
+          w: out(glyph.x + x_max * scale, 1) - x,
+          h: bottom - top,
+        }
+        const key = evicted === "words" ? (word[glyph.cluster] ?? 0) : letter++
+        const group = groups.get(key)
+        if (group) {
+          group.box = union(group.box, box)
+          group.glyphs.push(glyph)
+        } else {
+          groups.set(key, { box, glyphs: [glyph] })
+        }
+      }),
     )
+    return [...groups.values()].map(({ box, glyphs }) => ({
+      box,
+      clear: () => {
+        for (const glyph of glyphs) {
+          const path = font.font.path(glyph.id, variations)
+          ctx.save()
+          ctx.globalCompositeOperation = "destination-out"
+          ctx.translate(glyph.x, glyph.y)
+          ctx.scale(scale, scale)
+          ctx.fill(path)
+          // and its antialiased edge: a device pixel around it
+          ctx.lineWidth = 2 / (pixelRatio * scale)
+          ctx.stroke(path)
+          ctx.restore()
+        }
+      },
+    }))
+  }
+
+  // Clears the old parts `slot` touches, each whole. Only before an entry
+  // is drawn there, so nothing newer is cleared with them: an old part that
+  // touches a newer entry went when that one was drawn
+  function clearUnder(slot: Rect) {
+    stale = stale.filter((old) => {
+      if (!overlaps(old.bounds, slot)) return true
+      old.parts = old.parts.filter((part) => {
+        if (!overlaps(part.box, slot)) return true
+        part.clear()
+        return false
+      })
+      return old.parts.length > 0
+    })
+  }
+
+  function drawEntry(entry: AtlasEntry) {
+    const slot = slotOf(entry)
+    clearUnder(slot)
+    // the padding too, so the space around the entry is empty
+    ctx.clearRect(...rectArgs(slot))
     ctx.fillStyle = "black"
     // The baseline on a whole device pixel, so the text's horizontal edges
     // (baseline, x-height, cap height) are as crisp as they can be
@@ -149,6 +262,12 @@ export function createAtlas(
     const baseline =
       Math.round((entry.y + entry.textYOffset) * pixelRatio) / pixelRatio
     const start = entry.x + entry.textXOffset
+    const layout = () =>
+      shaper
+        .textSize(entry.fontSize)
+        .textProperty("letterSpacing", letterSpacing * entry.fontSize)
+        .layout(entry.text, start, baseline)
+    if (byParts) parts.set(entry, oldParts(entry, layout(), pixelRatio))
 
     if (settings.text.render === "browser") {
       ctx.textBaseline = "alphabetic"
@@ -160,17 +279,14 @@ export function createAtlas(
       ctx.fillText(entry.text, start, baseline)
       return
     }
-    const layout = shaper
-      .textSize(entry.fontSize)
-      .textProperty("letterSpacing", letterSpacing * entry.fontSize)
-      .layout(entry.text, start, baseline)
-    for (const line of layout.lines) {
+    const shaped = layout()
+    for (const line of shaped.lines) {
       for (const glyph of line.glyphs) {
         if (!glyph.bbox) continue // spaces
         ctx.save()
         ctx.translate(glyph.x, glyph.y)
-        ctx.scale(layout.scale, layout.scale)
-        ctx.fill(font.font.path(glyph.id, layout.variations))
+        ctx.scale(shaped.scale, shaped.scale)
+        ctx.fill(font.font.path(glyph.id, shaped.variations))
         ctx.restore()
       }
     }
@@ -278,6 +394,8 @@ export function createAtlas(
       // Full: start over on top of the old pixels and place what's visible
       // again
       stats.resets++
+      if (evicted !== "keep") entries.forEach(retire)
+      parts.clear()
       packer.clear()
       entries.clear()
       latest.clear()
@@ -400,6 +518,59 @@ export function textWarnings(settings: Settings, font: AtlasFont): string[] {
     )
   }
   return warnings
+}
+
+/** A rectangle in the atlas, in px */
+interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+function rectArgs(r: Rect): [number, number, number, number] {
+  return [r.x, r.y, r.w, r.h]
+}
+
+function overlaps(a: Rect, b: Rect) {
+  return (
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  )
+}
+
+/** The smallest rectangle around `a` and `b` */
+function union(a: Rect, b: Rect): Rect {
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  return {
+    x,
+    y,
+    w: Math.max(a.x + a.w, b.x + b.w) - x,
+    h: Math.max(a.y + a.h, b.y + b.h) - y,
+  }
+}
+
+/**
+ * For each UTF-16 offset in `text`, which word it's in (counted from 0;
+ * spaces belong to the word before them)
+ */
+function wordIndexes(text: string): number[] {
+  const indexes: number[] = []
+  let word = 0
+  let inSpace = false
+  for (const char of text.split("")) {
+    const space = /\s/.test(char)
+    if (inSpace && !space) word++
+    inSpace = space
+    indexes.push(word)
+  }
+  return indexes
+}
+
+/** A part of an old entry, still drawn: where it is, and how to clear it */
+interface OldPart {
+  box: Rect
+  clear: () => void
 }
 
 /** The widest a piece can be: the atlas's width, less the padding (and margin) */

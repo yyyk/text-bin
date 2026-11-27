@@ -3,7 +3,12 @@ import { PanelSection } from "@/components/PanelSection"
 import { SelectField } from "@/components/SelectField"
 import { SwitchField } from "@/components/SwitchField"
 import type { Update } from "@/hooks/useDocument"
-import type { PackStrategy, PackUnit, Wrap } from "@/lib/atlas/settings"
+import type {
+  Evicted,
+  PackStrategy,
+  PackUnit,
+  Wrap,
+} from "@/lib/atlas/settings"
 import type { Option } from "@/lib/options"
 import type { Doc } from "@/state/document"
 
@@ -52,6 +57,29 @@ const WRAPS = [
     hint: "Text wider than the atlas wraps between letters",
   },
 ] as const satisfies readonly Option<Wrap>[]
+
+const EVICTED = [
+  {
+    value: "keep",
+    label: "Keep",
+    hint: "Old text stays, cut into pieces by newer text",
+  },
+  {
+    value: "letters",
+    label: "Letters",
+    hint: "Old text stays; the letters under newer text go whole",
+  },
+  {
+    value: "words",
+    label: "Words",
+    hint: "Old text stays; words newer text touches go whole",
+  },
+  {
+    value: "evict",
+    label: "Clear",
+    hint: "Old text is cleared whole when it's evicted",
+  },
+] as const satisfies readonly Option<Evicted>[]
 
 /** The atlas's size, and how text is packed into it. */
 export function AtlasSection({ doc, update }: { doc: Doc; update: Update }) {
@@ -131,6 +159,12 @@ export function AtlasSection({ doc, update }: { doc: Doc; update: Update }) {
         checked={atlas.reuse}
         hint="On: a text already in the atlas at that size is used again. Off: no cache, each new appearance is packed again"
         onChange={(reuse) => update("atlas", { reuse }, false)}
+      />
+      <SelectField
+        label="Evicted"
+        value={atlas.evicted}
+        options={EVICTED}
+        onChange={(evicted) => update("atlas", { evicted }, false)}
       />
     </PanelSection>
   )

@@ -49,8 +49,9 @@ The settings are in four tabs: Text, Motion, Atlas and Output.
 - **Atlas**: its size; padding around each entry (and optionally along the
   edges too, for even spacing); when text is packed during a zoom (every
   frame, every few px, or at the end); what's packed (text, word or letter),
-  how text too wide for it wraps, and whether copies are reused. The seed,
-  with a button to shuffle it.
+  how text too wide for it wraps, whether copies are reused, and what
+  happens to old text (kept and cut by newer text, or cleared by letter,
+  word or whole). The seed, with a button to shuffle it.
 - **Preview**: play and pause (Space), step a frame (→), scrub; fit to the
   window or 100% (Shift+1, Shift+0), sharp at either. Debug mode shows each
   text drawn from the atlas, the entries outlined (their padding dashed), and
